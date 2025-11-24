@@ -1,7 +1,5 @@
-# Definición del Podfile
-platform :ios, '13.0'
+platform :ios, '12.0'
 
-# Desactivar estadísticas para agilizar
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
 project 'Runner', {
@@ -12,18 +10,16 @@ project 'Runner', {
 
 def flutter_root
   generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
-  unless File.exist?(generated_xcode_build_settings_path)
-    raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
-  end
+  raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first" unless File.exist?(generated_xcode_build_settings_path)
 
   File.foreach(generated_xcode_build_settings_path) do |line|
     matches = line.match(/FLUTTER_ROOT\=(.*)/)
     return matches[1].strip if matches
   end
-  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Generated.xcconfig and running flutter pub get"
+  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}"
 end
 
-require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+require File.expand_path(File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper'), __FILE__)
 
 flutter_ios_podfile_setup
 
@@ -34,39 +30,19 @@ target 'Runner' do
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
-# BLOQUE DE LIMPIEZA NUCLEAR PARA EL ERROR -G
+# FIX PARA EL ERROR: unsupported option '-G'
 post_install do |installer|
   installer.pods_project.targets.each do |target|
-    flutter_additional_ios_build_settings(target)
-    
     target.build_configurations.each do |config|
-      # 1. Forzar iOS 13.0 mínimo en TODO
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
-      
-      # 2. Desactivar Bitcode (causa problemas con librerías nuevas)
-      config.build_settings['ENABLE_BITCODE'] = 'NO'
-      
-      # 3. LIMPIEZA EXTREMA DEL ERROR -G
-      # Iteramos sobre todas las configuraciones de flags posibles
-      ['OTHER_CFLAGS', 'OTHER_CPLUSPLUSFLAGS', 'GCC_PREPROCESSOR_DEFINITIONS'].each do |flag_type|
-        flags = config.build_settings[flag_type]
-        
-        if flags
-          # Si es una lista (Array), filtramos y quitamos '-G' exacto
-          if flags.is_a?(Array)
-            config.build_settings[flag_type] = flags.reject { |f| f == '-G' }
-          
-          # Si es texto (String), reemplazamos '-G ' por vacío
-          elsif flags.is_a?(String)
-            # Reemplazar '-G' al inicio, medio o final de la cadena
-            config.build_settings[flag_type] = flags.gsub(/-G\s+/, '').gsub(/\s+-G/, '').gsub(/-G$/, '')
-          end
-        end
+      if config.build_settings['OTHER_CPLUSPLUSFLAGS']
+        config.build_settings['OTHER_CPLUSPLUSFLAGS'] =
+          config.build_settings['OTHER_CPLUSPLUSFLAGS'].map { |f| f.gsub('-G', '') }
       end
-      
-      # 4. Silenciar advertencias para evitar falsos positivos
-      config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = "YES"
-      config.build_settings['SWIFT_TREAT_WARNINGS_AS_ERRORS'] = "NO"
+
+      if config.build_settings['OTHER_CFLAGS']
+        config.build_settings['OTHER_CFLAGS'] =
+          config.build_settings['OTHER_CFLAGS'].map { |f| f.gsub('-G', '') }
+      end
     end
   end
 end
