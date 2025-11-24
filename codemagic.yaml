@@ -1,39 +1,40 @@
 workflows:
   ios_release:
     name: iOS Release Build
-    triggering:
-      events:
-        - push
-      branch_patterns:
-        - pattern: "main"
-          include: true
-          source: true
-
+    max_build_duration: 60
     environment:
       flutter: stable
       xcode: latest
-      cocoapods: 1.15.2
-
+      cocoapods: default
+      vars:
+        IOS_BUILD_TARGET: "ios"
     scripts:
-      - name: Pre-build clean
+      # -------------------------------------
+      # CLEAN BUILD CACHE (Flutter + DerivedData + Pods)
+      # -------------------------------------
+      - name: Clean Flutter build
         script: |
-          echo "Running Flutter clean..."
           flutter clean
-
-          echo "Removing iOS Pods..."
           rm -rf ios/Pods
           rm -rf ios/Podfile.lock
-          rm -rf ios/.symlinks
+          rm -rf ~/Library/Developer/Xcode/DerivedData
 
-          echo "Updating Cocoapods repo..."
-          cd ios
-          pod repo update
-          cd ..
-
-      - name: Get Flutter dependencies
+      # -------------------------------------
+      # INSTALL DEPENDENCIES
+      # -------------------------------------
+      - name: Install pub dependencies
         script: |
           flutter pub get
 
+      - name: iOS pod install
+        script: |
+          cd ios
+          pod install
+          cd ..
+
+      # -------------------------------------
+      # BUILD iOS (RELEASE)
+      # -------------------------------------
       - name: Build iOS release (no code signing)
         script: |
           flutter build ios --release --no-codesign
@@ -41,8 +42,12 @@ workflows:
     artifacts:
       - build/ios/ipa/*.ipa
       - build/ios/iphoneos/*.app
-
+      - build/**/Runner.app
+      - build/**/Runner.ipa
     publishing:
       email:
         recipients:
-          - "fer_trejopaz@gmail.com"
+          - "ftrejopaz@gmail.com"
+        notify:
+          success: true
+          failure: true
