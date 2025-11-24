@@ -1,4 +1,4 @@
-platform :ios, '12.0'
+platform :ios, '15.0'
 
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
@@ -30,19 +30,11 @@ target 'Runner' do
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
-# FIX PARA EL ERROR: unsupported option '-G'
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     target.build_configurations.each do |config|
-      if config.build_settings['OTHER_CPLUSPLUSFLAGS']
-        config.build_settings['OTHER_CPLUSPLUSFLAGS'] =
-          config.build_settings['OTHER_CPLUSPLUSFLAGS'].map { |f| f.gsub('-G', '') }
-      end
-
-      if config.build_settings['OTHER_CFLAGS']
-        config.build_settings['OTHER_CFLAGS'] =
-          config.build_settings['OTHER_CFLAGS'].map { |f| f.gsub('-G', '') }
-      end
+      # Forzar que Xcode compile en iOS 15
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
     end
   end
 end
