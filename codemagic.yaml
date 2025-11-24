@@ -8,25 +8,40 @@ workflows:
       xcode: latest
       cocoapods: default
     scripts:
-      - name: Get Flutter packages
+      - name: Clean and Get Packages
         script: |
-          flutter packages pub get
-      - name: Install pods
+          # Limpiar y descargar paquetes frescos
+          flutter clean
+          flutter pub get
+      
+      - name: Install Pods
         script: |
-          find . -name "Podfile" -exec dir {} \;
-          cd ios && pod install && cd ..
+          # Entrar a carpeta iOS e instalar dependencias nativas
+          cd ios
+          # Limpieza preventiva de CocoaPods
+          rm -rf Pods
+          rm Podfile.lock
+          # Instalación
+          pod install --repo-update
+          cd ..
+          
       - name: Build iOS
         script: |
+          # Compilar la app sin firmar (para Sideloadly)
           flutter build ios --release --no-codesign
+          
       - name: Package IPA
         script: |
+          # Empaquetar el resultado en un .ipa
           mkdir -p Payload
           mv build/ios/iphoneos/Runner.app Payload/
           zip -r Runner.ipa Payload
+          
     artifacts:
       - Runner.ipa
       - build/ios/iphoneos/*.app
     publishing:
       email:
         recipients:
-          - ftrejopaz@gmail.com  # <--- CAMBIA ESTO POR TU EMAIL
+          # ¡PON AQUÍ TU EMAIL REAL!
+          - tu_correo@ejemplo.com
