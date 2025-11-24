@@ -1,14 +1,14 @@
 import 'dart:async';
 import 'dart:convert'; // Para decodificar JSON
-import 'dart:typed_data';
-
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // Import necesario para QuerySnapshot
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart'; 
-import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart'; // Librería Bluetooth
+import 'package:flutter_blue_plus/flutter_blue_plus.dart'; // Librería BLE
 import 'package:permission_handler/permission_handler.dart'; // Permisos
 
+// Importaciones de tus pantallas y servicios
 import 'servicios/firebase_service.dart';
 import 'screens/profile_screen.dart';
 import 'screens/history_screen.dart';
@@ -16,9 +16,9 @@ import 'screens/qr_share_screen.dart';
 import 'screens/qr_scan_screen.dart';
 import 'screens/symptom_screen.dart';
 import 'screens/onboarding_screen.dart'; 
-import 'screens/patient_detail_screen.dart'; 
+import 'screens/patient_detail_screen.dart';
 
-// 1. VARIABLE GLOBAL PARA EL TEMA (El "Control Remoto")
+// 1. VARIABLE GLOBAL PARA EL TEMA
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
 
 void main() async {
@@ -46,7 +46,7 @@ class MyApp extends StatelessWidget {
           title: 'Monitor ECG IoT',
           debugShowCheckedModeBanner: false,
           
-          // Tema Claro (Día)
+          // Tema Claro
           theme: ThemeData(
             primarySwatch: Colors.teal,
             useMaterial3: true,
@@ -58,7 +58,7 @@ class MyApp extends StatelessWidget {
             ),
           ),
           
-          // Tema Oscuro (Noche/Médico)
+          // Tema Oscuro
           darkTheme: ThemeData(
             brightness: Brightness.dark,
             primarySwatch: Colors.teal,
@@ -276,7 +276,6 @@ class _LoginScreenState extends State<LoginScreen> {
         email: _emailController.text.trim(),
         password: _passController.text.trim(),
         nombre: _nameController.text.trim(),
-        // Corrección vital: enviamos siempre minúsculas
         rol: isDoctor ? "medico" : "paciente",
       );
 
@@ -308,7 +307,7 @@ class _LoginScreenState extends State<LoginScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// DASHBOARD DEL PACIENTE
+// DASHBOARD DEL PACIENTE (CON BLE)
 // ---------------------------------------------------------------------------
 class PatientDashboard extends StatefulWidget {
   const PatientDashboard({super.key});
@@ -320,20 +319,25 @@ class PatientDashboard extends StatefulWidget {
 class _PatientDashboardState extends State<PatientDashboard> {
   final FirebaseService _authService = FirebaseService();
 
-  // Variables Bluetooth
-  BluetoothConnection? connection;
-  bool isConnected = false;
-  bool isConnecting = false;
+  // Variables BLE
+  BluetoothDevice? connectedDevice;
+  BluetoothCharacteristic? targetCharacteristic;
+  StreamSubscription? scanSubscription;
+  StreamSubscription? valueSubscription;
   
-  // Variables de Datos Reales
+  bool isConnected = false;
+  bool isScanning = false;
+  
+  // UUID de la característica del ESP32 (Debe coincidir con el código Arduino)
+  final String TARGET_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+
+  // Datos Reales
   int batteryLevel = 0;
   int bpm = 0;
-  List<double> ecgPoints = List.filled(100, 2048.0, growable: true); // Iniciamos en la mitad
-  
-  // Buffer para reconstruir el JSON que llega por partes
+  List<double> ecgPoints = List.filled(100, 2048.0, growable: true);
   String _dataBuffer = "";
 
-  // Datos del Paciente
+  // Datos de Perfil
   String displayNombre = "Cargando...";
   String displayEdad = "--";
   String displayPeso = "--";
@@ -343,26 +347,22 @@ class _PatientDashboardState extends State<PatientDashboard> {
   void initState() {
     super.initState();
     _cargarDatosPaciente();
-    _solicitarPermisos(); // Pedir permisos al iniciar
+    _checkPermissions();
   }
 
   @override
   void dispose() {
-    // Importante: Cerrar conexión al salir
-    if (isConnected) {
-      connection?.dispose();
-    }
+    scanSubscription?.cancel();
+    valueSubscription?.cancel();
+    connectedDevice?.disconnect();
     super.dispose();
   }
 
-  Future<void> _solicitarPermisos() async {
-    // Pedir permisos necesarios para Android 12+
-    await [
-      Permission.bluetooth,
-      Permission.bluetoothScan,
-      Permission.bluetoothConnect,
-      Permission.location,
-    ].request();
+  Future<void> _checkPermissions() async {
+    if (await Permission.bluetoothScan.request().isGranted &&
+        await Permission.bluetoothConnect.request().isGranted) {
+      // Permisos concedidos
+    }
   }
 
   void _cargarDatosPaciente() async {
@@ -372,100 +372,76 @@ class _PatientDashboardState extends State<PatientDashboard> {
         var data = doc.data() as Map<String, dynamic>;
         setState(() {
           displayNombre = data['nombre'] ?? "Paciente";
-          if (data.containsKey('datos_biometricos')) {
-            var bio = data['datos_biometricos'];
-            displayEdad = bio['edad']?.toString() ?? "--";
-            displayPeso = bio['peso']?.toString() ?? "--";
-            displayAltura = bio['altura']?.toString() ?? "--";
-          } else {
-            displayEdad = "--"; displayPeso = "--"; displayAltura = "--";
+          var bio = data['datos_biometricos'];
+          if (bio != null) {
+            displayEdad = "${bio['edad']}";
+            displayPeso = "${bio['peso']}";
+            displayAltura = "${bio['altura']}";
           }
         });
       }
     } catch (e) {
-      print("Error cargando dashboard: $e");
+      print("Error cargando perfil: $e");
     }
   }
 
-  // --- LÓGICA DE CONEXIÓN BLUETOOTH ---
-  Future<void> _abrirSelectorBluetooth() async {
-    // 1. Obtener lista de dispositivos emparejados
-    List<BluetoothDevice> devices = [];
-    try {
-      devices = await FlutterBluetoothSerial.instance.getBondedDevices();
-    } catch (e) {
-      print("Error obteniendo dispositivos: $e");
-    }
+  // --- LÓGICA BLE ---
+  void _startScan() async {
+    setState(() => isScanning = true);
+    
+    // Escanear por 5 segundos
+    await FlutterBluePlus.startScan(timeout: const Duration(seconds: 5));
 
-    // 2. Mostrar diálogo para elegir
-    if (!mounted) return;
-    showModalBottomSheet(
-      context: context,
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text("Selecciona tu ESP32", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
-              if (devices.isEmpty)
-                const Text("No hay dispositivos emparejados. Ve a ajustes de Bluetooth y empareja el ESP32 primero.")
-              else
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: devices.length,
-                    itemBuilder: (context, index) {
-                      return ListTile(
-                        leading: const Icon(Icons.bluetooth),
-                        title: Text(devices[index].name ?? "Desconocido"),
-                        subtitle: Text(devices[index].address),
-                        onTap: () {
-                          Navigator.pop(context); // Cerrar modal
-                          _conectarDispositivo(devices[index]);
-                        },
-                      );
-                    },
-                  ),
-                ),
-            ],
-          ),
-        );
-      },
-    );
+    scanSubscription = FlutterBluePlus.scanResults.listen((results) {
+      for (ScanResult r in results) {
+        // Buscamos el dispositivo por su nombre
+        if (r.device.platformName == "Monitor_ECG_BLE") { 
+          FlutterBluePlus.stopScan();
+          _connectToDevice(r.device);
+          break;
+        }
+      }
+    });
+
+    // Apagar spinner si no encuentra nada
+    Future.delayed(const Duration(seconds: 5), () {
+      if (mounted && !isConnected) setState(() => isScanning = false);
+    });
   }
 
-  void _conectarDispositivo(BluetoothDevice device) async {
-    setState(() => isConnecting = true);
-
+  void _connectToDevice(BluetoothDevice device) async {
     try {
-      connection = await BluetoothConnection.toAddress(device.address);
-      
+      await device.connect();
       setState(() {
+        connectedDevice = device;
         isConnected = true;
-        isConnecting = false;
+        isScanning = false;
       });
 
+      // Descubrir servicios y características
+      List<BluetoothService> services = await device.discoverServices();
+      for (BluetoothService service in services) {
+        for (BluetoothCharacteristic characteristic in service.characteristics) {
+          if (characteristic.uuid.toString() == TARGET_UUID) {
+            targetCharacteristic = characteristic;
+            
+            // Habilitar notificaciones para recibir datos en tiempo real
+            await characteristic.setNotifyValue(true);
+            valueSubscription = characteristic.lastValueStream.listen((value) {
+              _onDataReceived(value);
+            });
+          }
+        }
+      }
+      
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Conectado a ${device.name}"), backgroundColor: Colors.green)
+        SnackBar(content: Text("Conectado a ${device.platformName}"), backgroundColor: Colors.green)
       );
 
-      // --- ESCUCHAR DATOS ---
-      connection!.input!.listen(_onDataReceived).onDone(() {
-        if (mounted) {
-          setState(() {
-            isConnected = false;
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Desconectado del dispositivo"), backgroundColor: Colors.red)
-          );
-        }
-      });
-
     } catch (e) {
-      print("Error de conexión: $e");
+      print("Error BLE: $e");
       if (mounted) {
-        setState(() => isConnecting = false);
+        setState(() { isConnected = false; isScanning = false; });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("No se pudo conectar"), backgroundColor: Colors.red)
         );
@@ -473,32 +449,44 @@ class _PatientDashboardState extends State<PatientDashboard> {
     }
   }
 
-  // PROCESAMIENTO DE DATOS QUE LLEGAN DEL ESP32
-  void _onDataReceived(Uint8List data) {
-    // Convertir bytes a texto y acumular en buffer
+  void _disconnect() async {
+    await connectedDevice?.disconnect();
+    setState(() {
+      isConnected = false;
+      targetCharacteristic = null;
+    });
+  }
+
+  void _onDataReceived(List<int> data) {
+    // Decodificar bytes a texto
     String incoming = utf8.decode(data);
     _dataBuffer += incoming;
 
-    // Buscar saltos de línea (indican fin de mensaje JSON)
-    while (_dataBuffer.contains('\n')) {
-      int index = _dataBuffer.indexOf('\n');
-      String jsonString = _dataBuffer.substring(0, index).trim();
-      _dataBuffer = _dataBuffer.substring(index + 1);
+    try {
+      // Limpiar buffer si es basura muy larga
+      if(_dataBuffer.length > 2000) _dataBuffer = "";
 
-      if (jsonString.isNotEmpty) {
-        _procesarJSON(jsonString);
+      // Buscar paquete JSON completo { ... }
+      int openBrace = _dataBuffer.indexOf('{');
+      int closeBrace = _dataBuffer.indexOf('}');
+
+      if (openBrace != -1 && closeBrace != -1 && closeBrace > openBrace) {
+        String jsonStr = _dataBuffer.substring(openBrace, closeBrace + 1);
+        _dataBuffer = _dataBuffer.substring(closeBrace + 1); // Remover procesado
+        _procesarJSON(jsonStr);
       }
+    } catch (e) {
+      // Esperar siguiente paquete
     }
   }
 
   void _procesarJSON(String jsonString) {
     try {
-      // Ejemplo: {"bpm":72, "bat":85, "wave":[2048, 2100...]}
       Map<String, dynamic> data = jsonDecode(jsonString);
-
-      // Verificar si es alerta de electrodos
+      
+      // Si el ESP32 reporta electrodos desconectados
       if (data.containsKey("status") && data["status"] == "LEADS_OFF") {
-        // Podríamos mostrar alerta visual aquí
+        // Aquí podrías mostrar una alerta visual
         return;
       }
 
@@ -507,31 +495,16 @@ class _PatientDashboardState extends State<PatientDashboard> {
         if (data.containsKey('bat')) batteryLevel = data['bat'];
         
         if (data.containsKey('wave')) {
-          List<dynamic> waveData = data['wave'];
-          // Normalizar datos (0-4095 a rango de gráfica ~ -2.0 a 2.0)
-          for (var val in waveData) {
-            // Convertir a double y escalar visualmente
-            // 2048 es el centro (3.3V / 2)
-            double normalized = (val - 2048) / 500.0; 
-            
-            // Invertimos valor porque AD8232 a veces da picos invertidos según cables
-            normalized = normalized * -1.0; 
-
+          List<dynamic> wave = data['wave'];
+          for (var val in wave) {
+            // Normalizar para la gráfica (aprox -2.0 a 2.0)
+            double normalized = (val - 2048) / 500.0 * -1.0;
             if (ecgPoints.length >= 100) ecgPoints.removeAt(0);
             ecgPoints.add(normalized);
           }
         }
       });
-    } catch (e) {
-      print("Error parseando JSON: $e");
-    }
-  }
-
-  void _desconectar() {
-    connection?.close();
-    setState(() {
-      isConnected = false;
-    });
+    } catch (e) { print(e); }
   }
 
   Color getBatteryColor() {
@@ -543,6 +516,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // --- DRAWER ---
       drawer: Drawer(
         child: ListView(
           padding: EdgeInsets.zero,
@@ -604,7 +578,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
               leading: const Icon(Icons.logout, color: Colors.red),
               title: const Text("Cerrar Sesión", style: TextStyle(color: Colors.red)),
               onTap: () async {
-                _desconectar(); // Asegurar desconexión al salir
+                _disconnect();
                 Navigator.pop(context);
                 await _authService.cerrarSesion();
                 if (mounted) {
@@ -618,6 +592,8 @@ class _PatientDashboardState extends State<PatientDashboard> {
           ],
         ),
       ),
+      
+      // --- APPBAR ---
       appBar: AppBar(
         title: const Text("Monitor Cardíaco"),
         actions: [
@@ -637,12 +613,14 @@ class _PatientDashboardState extends State<PatientDashboard> {
           )
         ],
       ),
+      
+      // --- BODY ---
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // INDICADORES DE CONEXIÓN Y BPM
+            // Estado y BPM
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -655,7 +633,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
                         Icon(Icons.circle, size: 12, color: isConnected ? Colors.green : Colors.red),
                         const SizedBox(width: 6),
                         Text(
-                          isConnected ? "CONECTADO" : (isConnecting ? "CONECTANDO..." : "DESCONECTADO"), 
+                          isConnected ? "CONECTADO" : (isScanning ? "BUSCANDO..." : "DESCONECTADO"), 
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)
                         ),
                       ],
@@ -681,7 +659,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
 
             const SizedBox(height: 20),
 
-            // GRÁFICA
+            // Gráfica
             const Text("Señal en Tiempo Real (AD8232)", style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Container(
@@ -700,28 +678,28 @@ class _PatientDashboardState extends State<PatientDashboard> {
 
             const SizedBox(height: 20),
 
-            // --- BOTONES DE CONTROL (Fila Superior) ---
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: isConnected ? Colors.red.shade100 : (isConnecting ? Colors.orange.shade100 : Colors.teal),
-                      foregroundColor: isConnected ? Colors.red : (isConnecting ? Colors.orange : Colors.white),
-                      padding: const EdgeInsets.symmetric(vertical: 15),
-                    ),
-                    onPressed: isConnecting ? null : (isConnected ? _desconectar : _abrirSelectorBluetooth),
-                    icon: Icon(isConnected ? Icons.bluetooth_disabled : Icons.bluetooth_connected),
-                    label: Text(isConnected ? "DESCONECTAR" : "CONECTAR SENSOR"),
-                  ),
+            // BOTÓN CONEXIÓN
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isConnected ? Colors.red.shade100 : (isScanning ? Colors.orange.shade100 : Colors.teal),
+                  foregroundColor: isConnected ? Colors.red : (isScanning ? Colors.orange : Colors.white),
+                  padding: const EdgeInsets.symmetric(vertical: 15),
                 ),
-                // Aquí puedes poner un segundo botón si lo necesitas, o dejar solo uno
-              ],
+                onPressed: isScanning ? null : (isConnected ? _disconnect : _startScan),
+                icon: isScanning 
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) 
+                    : Icon(isConnected ? Icons.bluetooth_disabled : Icons.bluetooth),
+                label: Text(
+                  isConnected ? "DESCONECTAR SENSOR" : (isScanning ? "BUSCANDO..." : "ESCANEAR Y CONECTAR")
+                ),
+              ),
             ),
 
             const SizedBox(height: 12),
 
-            // --- BOTÓN GUARDAR (Fila Inferior) ---
+            // BOTÓN GUARDAR
             if (isConnected)
               SizedBox(
                 width: double.infinity,
@@ -744,7 +722,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
             const SizedBox(height: 30),
             const Divider(),
             
-            // TARJETA DE DATOS
+            // Datos Fisiológicos
             const SizedBox(height: 10),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -888,16 +866,11 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
         foregroundColor: Colors.white,
       ),
       
-      // --- LISTA DE PACIENTES CONECTADA ---
       body: StreamBuilder<QuerySnapshot>(
         stream: _authService.obtenerMisPacientes(),
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text("Error: ${snapshot.error}"));
-          }
+          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+          if (snapshot.hasError) return Center(child: Text("Error: ${snapshot.error}"));
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
             return Center(
               child: Column(
@@ -913,7 +886,6 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
             );
           }
 
-          // Lista de Pacientes
           return ListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: snapshot.data!.docs.length,
@@ -939,13 +911,12 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
                   isThreeLine: true,
                   trailing: const Icon(Icons.chevron_right, color: Colors.grey),
                   onTap: () {
-                    // Navegar al expediente completo
                     Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (context) => PatientDetailScreen(
-                          pacienteId: pacienteDoc.id, // ID del documento
-                          datosPaciente: data,        // Datos descargados
+                          pacienteId: pacienteDoc.id,
+                          datosPaciente: data,
                         ),
                       ),
                     );
