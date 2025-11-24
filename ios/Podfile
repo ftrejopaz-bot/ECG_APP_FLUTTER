@@ -27,27 +27,31 @@ require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelpe
 
 flutter_ios_podfile_setup
 
+# BLOQUE TARGET RUNNER
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
-  
-  # Aquí agregamos la solución al error -G
- post_install do |installer|
-    installer.pods_project.targets.each do |target|
-      target.build_configurations.each do |config|
-        # Forzar iOS 13.0
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
-        
-        # Deshabilitar Bitcode (causa problemas con algunas librerías viejas)
-        config.build_settings['ENABLE_BITCODE'] = 'NO'
-        
-        # Arreglo para el error -G
-        config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = "YES"
-      end
+end # <--- FIN DEL TARGET RUNNER
+
+# BLOQUE POST INSTALL (FUERA DEL TARGET)
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    flutter_additional_ios_build_settings(target)
+    
+    target.build_configurations.each do |config|
+      # Forzar iOS 13.0
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
       
-      # Asegurar que los módulos de Flutter se firmen correctamente
-      flutter_additional_ios_build_settings(target)
+      # Arreglo para el error -G
+      config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = "YES"
+      
+      # Eliminar arquitecturas viejas
+      config.build_settings['ARCHS[sdk=iphoneos*]'] = 'arm64'
+      
+      # Deshabilitar bitcode (causa problemas con algunas librerías)
+      config.build_settings['ENABLE_BITCODE'] = 'NO'
     end
   end
+end
