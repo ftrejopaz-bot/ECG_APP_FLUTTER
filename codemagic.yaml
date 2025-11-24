@@ -1,46 +1,56 @@
 workflows:
-  ios_build:
-    name: iOS Release (no signing)
-
-    triggers:
-      - push
-
+  ios-release:
+    name: iOS Release Build (No Signing)
+    instance_type: mac_mini_m1
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
+      vars:
+        IOS_VERSION: "15.0"
 
     scripts:
-      # ---------- LIMPIEZA COMPLETA ----------
-      - name: Limpieza completa del proyecto
+      # --------------------------
+      # 1. Limpieza completa
+      # --------------------------
+      - name: Clean Flutter & iOS environment
         script: |
-          echo "Eliminando Pods antiguos..."
-          rm -rf ios/Pods
-          rm -rf ios/Podfile.lock
-          rm -rf ios/.symlinks
-          rm -rf ios/Flutter/Flutter.podspec
-          rm -rf ios/Flutter/ephemeral
-          rm -rf ios/build
-
-          echo "Limpieza Flutter..."
           flutter clean
+          rm -rf ios/Pods
+          rm -rf ios/.symlinks
+          rm -rf ios/Flutter/Flutter.framework
+          rm -rf ios/Flutter/Flutter.podspec
+          rm -rf ios/Flutter/App.framework
+          rm -rf ios/Flutter/engine
+          rm -f ios/Podfile.lock
+
+      # --------------------------
+      # 2. Obtener dependencias
+      # --------------------------
+      - name: Flutter Pub Get
+        script: |
           flutter pub get
 
-      # ---------- CREAR EL Runner.xcworkspace ----------
-      - name: Configurar CocoaPods
+      # --------------------------
+      # 3. Regenerar Podfile y Pods
+      # --------------------------
+      - name: Install CocoaPods
         script: |
           cd ios
-          pod install --repo-update
+          pod repo update
+          pod install --clean-install
           cd ..
 
-      # ---------- BUILD ----------
-      - name: Compilar iOS (no code signing)
+      # --------------------------
+      # 4. Build iOS sin code signing
+      # --------------------------
+      - name: Build iOS Release (no code signing)
         script: |
           flutter build ios --release --no-codesign
 
     artifacts:
       - build/ios/ipa/**
-      - build/ios/iphoneos/*.app
+      - build/ios/archive/Runner.xcarchive
 
     publishing:
       email:
