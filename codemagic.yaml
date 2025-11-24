@@ -1,52 +1,48 @@
 workflows:
-  ios_release:
-    name: iOS Release Clean Build
-    instance_type: mac_mini_m1
+  ios_build:
+    name: iOS Release (no signing)
+
+    triggers:
+      - push
 
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
-      vars:
-        IOS_MIN_TARGET: "15.0"
 
     scripts:
-      # 1) Limpieza completa de Flutter
-      - name: Clean Flutter project
+      # ---------- LIMPIEZA COMPLETA ----------
+      - name: Limpieza completa del proyecto
         script: |
-          flutter clean
-          rm -rf ios/Flutter/Flutter.framework
-          rm -rf ios/Flutter/App.framework
-          rm -rf ios/.symlinks
+          echo "Eliminando Pods antiguos..."
           rm -rf ios/Pods
           rm -rf ios/Podfile.lock
-          rm -rf $HOME/.pub-cache
+          rm -rf ios/.symlinks
+          rm -rf ios/Flutter/Flutter.podspec
+          rm -rf ios/Flutter/ephemeral
+          rm -rf ios/build
+
+          echo "Limpieza Flutter..."
+          flutter clean
           flutter pub get
 
-      # 2) Re-escribir el Podfile con el target mínimo
-      - name: Update iOS deployment target
-        script: |
-          sed -i '' 's/platform :ios, .*/platform :ios, "15.0"/' ios/Podfile || true
-
-      # 3) Regenerar proyecto iOS desde Flutter
-      - name: Regenerate iOS folder (if needed)
-        script: |
-          flutter pub get
-          flutter precache --ios
-
-      # 4) Instalar Pods correctamente
-      - name: Install CocoaPods
+      # ---------- CREAR EL Runner.xcworkspace ----------
+      - name: Configurar CocoaPods
         script: |
           cd ios
-          pod repo update
-          pod install --verbose
+          pod install --repo-update
           cd ..
 
-      # 5) Build sin firmas
-      - name: Build iOS (no code signing)
+      # ---------- BUILD ----------
+      - name: Compilar iOS (no code signing)
         script: |
           flutter build ios --release --no-codesign
 
     artifacts:
-      - build/ios/ipa/*.ipa
-      - build/ios/archive/*.xcarchive
+      - build/ios/ipa/**
+      - build/ios/iphoneos/*.app
+
+    publishing:
+      email:
+        recipients:
+          - "ftrejopaz@gmail.com"
