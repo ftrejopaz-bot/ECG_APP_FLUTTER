@@ -6,7 +6,7 @@ class FirebaseService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  // 1. REGISTRO
+  // 1. REGISTRO DE USUARIO
   Future<String?> registrarUsuario({
     required String email,
     required String password,
@@ -52,7 +52,7 @@ class FirebaseService {
     }
   }
 
-  // 2. LOGIN
+  // 2. LOGIN (INICIO DE SESIÓN)
   Future<Map<String, dynamic>> iniciarSesion(String email, String password) async {
     try {
       UserCredential userCredential = await _auth.signInWithEmailAndPassword(email: email, password: password);
@@ -78,7 +78,8 @@ class FirebaseService {
     return _auth.currentUser?.email;
   }
 
-  // 4. LEER DATOS USUARIO (Flexible: Mío o de otro)
+  // 4. LEER DATOS DE PERFIL
+  // Si uid es null, lee el perfil propio. Si tiene valor, lee el de ese paciente.
   Future<DocumentSnapshot> getUserData({String? uid}) async {
     if (_auth.currentUser == null) throw Exception("No hay usuario");
     String targetUid = uid ?? _auth.currentUser!.uid;
@@ -95,7 +96,7 @@ class FirebaseService {
     }
   }
 
-  // 6. VINCULAR PACIENTE
+  // 6. VINCULAR PACIENTE (LÓGICA DE MÉDICO)
   Future<String> vincularPaciente(String codigoIngresado) async {
     String uidMedico = _auth.currentUser!.uid;
     try {
@@ -105,12 +106,11 @@ class FirebaseService {
       DocumentSnapshot docPaciente = query.docs.first;
       String uidPaciente = docPaciente.id;
 
-      // Actualizar al médico (agregar a lista)
+      // Agregar a lista del médico
       await _db.collection('users').doc(uidMedico).update({
         'lista_pacientes': FieldValue.arrayUnion([uidPaciente])
       });
-      
-      // Actualizar al paciente (asignar médico)
+      // Asignar médico al paciente
       await _db.collection('users').doc(uidPaciente).update({'medico_uid': uidMedico});
 
       return "¡Éxito! Paciente vinculado.";
@@ -119,7 +119,7 @@ class FirebaseService {
     }
   }
 
-  // 7. GUARDAR MEDICIÓN
+  // 7. GUARDAR MEDICIÓN ECG EN LA NUBE
   Future<void> guardarMedicion({required int bpm, required List<double> datosOnda}) async {
     await _db.collection('mediciones').add({
       'paciente_uid': _auth.currentUser!.uid,
@@ -130,7 +130,8 @@ class FirebaseService {
     });
   }
 
-  // 8. OBTENER HISTORIAL (Flexible)
+  // 8. OBTENER HISTORIAL DE MEDICIONES
+  // Permite leer el propio o el de un paciente específico (si se pasa uid)
   Stream<QuerySnapshot> obtenerHistorialPaciente({String? uid}) {
     String targetUid = uid ?? _auth.currentUser!.uid;
     return _db.collection('mediciones')
@@ -139,13 +140,13 @@ class FirebaseService {
         .snapshots();
   }
   
-  // 9. OBTENER PACIENTES ASIGNADOS (Médico)
+  // 9. OBTENER LISTA DE PACIENTES DEL MÉDICO
   Stream<QuerySnapshot> obtenerMisPacientes() {
     String uid = _auth.currentUser!.uid;
     return _db.collection('users').where('medico_uid', isEqualTo: uid).snapshots();
   }
 
-  // 10. GUARDAR SÍNTOMA
+  // 10. REGISTRAR SÍNTOMA EN BITÁCORA
   Future<void> registrarSintoma(String descripcion) async {
     await _db.collection('bitacora_sintomas').add({
       'paciente_uid': _auth.currentUser!.uid,
@@ -154,7 +155,7 @@ class FirebaseService {
     });
   }
 
-  // 11. LEER BITÁCORA (Flexible)
+  // 11. LEER BITÁCORA
   Stream<QuerySnapshot> obtenerBitacora({String? uid}) {
     String targetUid = uid ?? _auth.currentUser!.uid;
     return _db.collection('bitacora_sintomas')

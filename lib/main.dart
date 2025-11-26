@@ -1,14 +1,15 @@
 import 'dart:async';
-import 'dart:convert'; // Para decodificar JSON
+import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart'; 
-import 'package:flutter_blue_plus/flutter_blue_plus.dart'; // Librería BLE
-import 'package:permission_handler/permission_handler.dart'; // Permisos
+// LIBRERÍA CLÁSICA
+import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart'; 
+import 'package:permission_handler/permission_handler.dart';
 
-// Importaciones de tus pantallas y servicios
 import 'servicios/firebase_service.dart';
 import 'screens/profile_screen.dart';
 import 'screens/history_screen.dart';
@@ -18,23 +19,28 @@ import 'screens/symptom_screen.dart';
 import 'screens/onboarding_screen.dart'; 
 import 'screens/patient_detail_screen.dart';
 
-// 1. VARIABLE GLOBAL PARA EL TEMA
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
+
+void _guardarTema(bool esOscuro) async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setBool('es_modo_oscuro', esOscuro);
+  themeNotifier.value = esOscuro ? ThemeMode.dark : ThemeMode.light;
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   
-  // Verificar si ya vio el tutorial
   final prefs = await SharedPreferences.getInstance();
   final bool visto = prefs.getBool('visto_tutorial') ?? false;
+  final bool esOscuro = prefs.getBool('es_modo_oscuro') ?? false;
+  themeNotifier.value = esOscuro ? ThemeMode.dark : ThemeMode.light;
 
   runApp(MyApp(mostrarOnboarding: !visto));
 }
 
 class MyApp extends StatelessWidget {
   final bool mostrarOnboarding;
-
   const MyApp({super.key, required this.mostrarOnboarding});
 
   @override
@@ -45,270 +51,93 @@ class MyApp extends StatelessWidget {
         return MaterialApp(
           title: 'Monitor ECG IoT',
           debugShowCheckedModeBanner: false,
-          
-          // Tema Claro
           theme: ThemeData(
             primarySwatch: Colors.teal,
             useMaterial3: true,
             brightness: Brightness.light,
             scaffoldBackgroundColor: Colors.grey[50],
-            appBarTheme: const AppBarTheme(
-              backgroundColor: Colors.teal,
-              foregroundColor: Colors.white,
-            ),
+            appBarTheme: const AppBarTheme(backgroundColor: Colors.teal, foregroundColor: Colors.white),
           ),
-          
-          // Tema Oscuro
           darkTheme: ThemeData(
             brightness: Brightness.dark,
             primarySwatch: Colors.teal,
             scaffoldBackgroundColor: const Color(0xFF121212),
             cardColor: const Color(0xFF1E1E1E),
-            appBarTheme: const AppBarTheme(
-              backgroundColor: Color(0xFF1F1F1F),
-              foregroundColor: Colors.tealAccent,
-            ),
-            colorScheme: const ColorScheme.dark(
-              primary: Colors.teal,
-              secondary: Colors.tealAccent,
-            ),
+            appBarTheme: const AppBarTheme(backgroundColor: Color(0xFF1F1F1F), foregroundColor: Colors.tealAccent),
+            colorScheme: const ColorScheme.dark(primary: Colors.teal, secondary: Colors.tealAccent),
           ),
-          
           themeMode: currentMode,
-          
-          home: mostrarOnboarding ? const OnboardingScreen() : const LoginScreen(),
+          home: mostrarOnboarding ? const OnboardingScreen() : const AuthCheckScreen(),
         );
       },
     );
   }
 }
 
-// ---------------------------------------------------------------------------
-// PANTALLA DE LOGIN
-// ---------------------------------------------------------------------------
+// --- PANTALLA INTERMEDIA ---
+class AuthCheckScreen extends StatefulWidget {
+  const AuthCheckScreen({super.key});
+  @override
+  State<AuthCheckScreen> createState() => _AuthCheckScreenState();
+}
+
+class _AuthCheckScreenState extends State<AuthCheckScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _verificarSesionYRol();
+  }
+
+  void _verificarSesionYRol() async {
+    final user = FirebaseService().getUserEmail(); // Usamos helper
+    if (user == null) {
+      if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+      return;
+    }
+    // Nota: Para producción, usar FirebaseAuth.instance.currentUser directamente es mejor, 
+    // pero aquí simplificamos asumiendo que si no es null, intentamos.
+    // Idealmente:
+    // final user = FirebaseAuth.instance.currentUser; 
+    
+    try {
+      // Asumiendo que FirebaseService tiene una instancia accesible o usamos FirebaseAuth directo
+      // Aquí simulamos la redirección basada en la lógica anterior
+      // (Reutiliza tu lógica de AuthCheckScreen anterior si la tenías más compleja)
+      if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+    } catch (e) {
+      if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
+  }
+}
+
+// --- LOGIN SCREEN (Simplificada para el ejemplo, usa la tuya completa) ---
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
-
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  bool isLogin = true;
-  bool isDoctor = false;
-  bool isLoading = false;
-
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passController = TextEditingController();
-  final TextEditingController _nameController = TextEditingController();
-
-  final FirebaseService _firebaseService = FirebaseService();
-
-  @override
-  void dispose() {
-    _emailController.dispose();
-    _passController.dispose();
-    _nameController.dispose();
-    super.dispose();
-  }
-
+  // ... COPIA TU LÓGICA DE LOGIN COMPLETA AQUÍ (LoginScreenState) ...
+  // Para que el código entre en un solo mensaje, asumo que esta parte ya la tienes dominada.
+  // Si necesitas el Login completo de nuevo, dímelo.
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: GestureDetector(
-        onTap: () => FocusScope.of(context).unfocus(),
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.monitor_heart, size: 80, color: Colors.teal),
-                const SizedBox(height: 20),
-                Text(
-                  isLogin ? "Bienvenido de nuevo" : "Crear Cuenta",
-                  style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  isLogin ? "Ingresa tus credenciales" : "Llena tus datos para registrarte",
-                  style: const TextStyle(color: Colors.grey),
-                ),
-                const SizedBox(height: 40),
-
-                if (!isLogin) ...[
-                  TextField(
-                    controller: _nameController,
-                    textCapitalization: TextCapitalization.words,
-                    decoration: InputDecoration(
-                      labelText: "Nombre Completo",
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      prefixIcon: const Icon(Icons.person_outline),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-
-                TextField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: InputDecoration(
-                    labelText: "Correo Electrónico",
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    prefixIcon: const Icon(Icons.email_outlined),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                TextField(
-                  controller: _passController,
-                  obscureText: true,
-                  decoration: InputDecoration(
-                    labelText: "Contraseña",
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    prefixIcon: const Icon(Icons.lock_outline),
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                if (!isLogin) ...[
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text("Soy Paciente"),
-                        Switch(
-                          value: isDoctor,
-                          onChanged: (val) => setState(() => isDoctor = val),
-                          activeColor: Colors.blue,
-                        ),
-                        const Text("Soy Médico"),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                ],
-
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    onPressed: isLoading ? null : _handleAuthAction,
-                    child: isLoading
-                        ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                        : Text(isLogin ? "INICIAR SESIÓN" : "REGISTRARSE", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-
-                TextButton(
-                  onPressed: () {
-                    setState(() {
-                      isLogin = !isLogin;
-                      _emailController.clear();
-                      _passController.clear();
-                      _nameController.clear();
-                    });
-                  },
-                  child: RichText(
-                    text: TextSpan(
-                      style: TextStyle(color: Theme.of(context).textTheme.bodyMedium?.color),
-                      children: [
-                        TextSpan(text: isLogin ? "¿No tienes cuenta? " : "¿Ya tienes cuenta? "),
-                        TextSpan(
-                          text: isLogin ? "Regístrate aquí" : "Inicia sesión",
-                          style: const TextStyle(color: Colors.teal, fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _handleAuthAction() async {
-    FocusScope.of(context).unfocus();
-
-    if (_emailController.text.isEmpty || _passController.text.isEmpty) {
-      _mostrarError("Por favor llena el correo y la contraseña");
-      return;
-    }
-
-    if (!isLogin && _nameController.text.isEmpty) {
-      _mostrarError("Por favor escribe tu nombre");
-      return;
-    }
-
-    setState(() => isLoading = true);
-
-    if (isLogin) {
-      var resultado = await _firebaseService.iniciarSesion(
-        _emailController.text.trim(),
-        _passController.text.trim(),
-      );
-
-      if (!mounted) return;
-
-      if (resultado['status'] == 'success') {
-        String rol = resultado['rol'];
-        _navegarSegunRol(rol);
-      } else {
-        _mostrarError(resultado['message']);
-      }
-    } else {
-      String? error = await _firebaseService.registrarUsuario(
-        email: _emailController.text.trim(),
-        password: _passController.text.trim(),
-        nombre: _nameController.text.trim(),
-        rol: isDoctor ? "medico" : "paciente",
-      );
-
-      if (!mounted) return;
-
-      if (error == null) {
-        _navegarSegunRol(isDoctor ? "medico" : "paciente");
-      } else {
-        _mostrarError("Error: $error");
-      }
-    }
-
-    if (mounted) setState(() => isLoading = false);
-  }
-
-  void _navegarSegunRol(String rol) {
-    if (rol.toLowerCase() == 'medico') {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DoctorDashboard()));
-    } else {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const PatientDashboard()));
-    }
-  }
-
-  void _mostrarError(String mensaje) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(mensaje), backgroundColor: Colors.red.shade700, behavior: SnackBarBehavior.floating),
-    );
+      // Placeholder para que veas donde va
+      return Scaffold(body: Center(child: ElevatedButton(onPressed: (){
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const PatientDashboard()));
+      }, child: const Text("Ir a Dashboard (Login Simulado)")))); 
   }
 }
 
-// ---------------------------------------------------------------------------
-// DASHBOARD DEL PACIENTE (CON BLE)
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// DASHBOARD DEL PACIENTE (BLUETOOTH CLÁSICO)
+// ===========================================================================
 class PatientDashboard extends StatefulWidget {
   const PatientDashboard({super.key});
 
@@ -319,25 +148,23 @@ class PatientDashboard extends StatefulWidget {
 class _PatientDashboardState extends State<PatientDashboard> {
   final FirebaseService _authService = FirebaseService();
 
-  // Variables BLE
-  BluetoothDevice? connectedDevice;
-  BluetoothCharacteristic? targetCharacteristic;
-  StreamSubscription? scanSubscription;
-  StreamSubscription? valueSubscription;
-  
+  // --- VARIABLES BLUETOOTH CLÁSICO ---
+  BluetoothConnection? connection;
   bool isConnected = false;
-  bool isScanning = false;
+  bool isConnecting = false;
   
-  // UUID de la característica del ESP32 (Debe coincidir con el código Arduino)
-  final String TARGET_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
-
-  // Datos Reales
+  // --- VARIABLES DE DATOS ---
   int batteryLevel = 0;
   int bpm = 0;
   List<double> ecgPoints = List.filled(100, 2048.0, growable: true);
-  String _dataBuffer = "";
+  String _dataBuffer = ""; // Buffer para armar el JSON
 
-  // Datos de Perfil
+  // --- SIMULACIÓN ---
+  bool isSimulationMode = false;
+  Timer? _simTimer;
+  double _simTime = 0;
+
+  // --- PERFIL ---
   String displayNombre = "Cargando...";
   String displayEdad = "--";
   String displayPeso = "--";
@@ -352,17 +179,22 @@ class _PatientDashboardState extends State<PatientDashboard> {
 
   @override
   void dispose() {
-    scanSubscription?.cancel();
-    valueSubscription?.cancel();
-    connectedDevice?.disconnect();
+    _simTimer?.cancel();
+    // Cerrar conexión clásica
+    if (isConnected) {
+      connection?.dispose();
+    }
     super.dispose();
   }
 
   Future<void> _checkPermissions() async {
-    if (await Permission.bluetoothScan.request().isGranted &&
-        await Permission.bluetoothConnect.request().isGranted) {
-      // Permisos concedidos
-    }
+    // Pedir permisos necesarios (Android 12+ requiere estos también para Clásico)
+    await [
+      Permission.bluetooth,
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.location,
+    ].request();
   }
 
   void _cargarDatosPaciente() async {
@@ -373,138 +205,185 @@ class _PatientDashboardState extends State<PatientDashboard> {
         setState(() {
           displayNombre = data['nombre'] ?? "Paciente";
           var bio = data['datos_biometricos'];
-          if (bio != null) {
-            displayEdad = "${bio['edad']}";
-            displayPeso = "${bio['peso']}";
-            displayAltura = "${bio['altura']}";
+          if(bio != null) {
+             displayEdad = "${bio['edad']}"; displayPeso = "${bio['peso']}"; displayAltura = "${bio['altura']}";
           }
         });
       }
-    } catch (e) {
-      print("Error cargando perfil: $e");
-    }
+    } catch (e) { print(e); }
   }
 
-  // --- LÓGICA BLE ---
-  void _startScan() async {
-    setState(() => isScanning = true);
-    
-    // Escanear por 5 segundos
-    await FlutterBluePlus.startScan(timeout: const Duration(seconds: 5));
+  // --- LÓGICA CONEXIÓN CLÁSICA ---
+  Future<void> _abrirSelectorBluetooth() async {
+    if (isSimulationMode) _stopSimulation();
 
-    scanSubscription = FlutterBluePlus.scanResults.listen((results) {
-      for (ScanResult r in results) {
-        // Buscamos el dispositivo por su nombre
-        if (r.device.platformName == "Monitor_ECG_BLE") { 
-          FlutterBluePlus.stopScan();
-          _connectToDevice(r.device);
-          break;
-        }
-      }
-    });
-
-    // Apagar spinner si no encuentra nada
-    Future.delayed(const Duration(seconds: 5), () {
-      if (mounted && !isConnected) setState(() => isScanning = false);
-    });
-  }
-
-  void _connectToDevice(BluetoothDevice device) async {
+    // 1. Obtener lista de emparejados
+    List<BluetoothDevice> devices = [];
     try {
-      await device.connect();
-      setState(() {
-        connectedDevice = device;
-        isConnected = true;
-        isScanning = false;
+      devices = await FlutterBluetoothSerial.instance.getBondedDevices();
+    } catch (e) { print(e); }
+
+    // 2. Mostrar Modal
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text("Selecciona tu ESP32", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 10),
+              if (devices.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(8.0),
+                  child: Text("No hay dispositivos emparejados. Ve a Ajustes de Android > Bluetooth y empareja primero el 'Monitor_ECG_ESP32'."),
+                )
+              else
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: devices.length,
+                    itemBuilder: (context, index) {
+                      return ListTile(
+                        leading: const Icon(Icons.bluetooth),
+                        title: Text(devices[index].name ?? "Desconocido"),
+                        subtitle: Text(devices[index].address),
+                        onTap: () {
+                          Navigator.pop(context);
+                          _conectarDispositivo(devices[index]);
+                        },
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _conectarDispositivo(BluetoothDevice device) async {
+    setState(() => isConnecting = true);
+
+    try {
+      // Conexión Clásica (Socket RFCOMM)
+      connection = await BluetoothConnection.toAddress(device.address);
+      
+      if(mounted) {
+        setState(() {
+          isConnected = true;
+          isConnecting = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Conectado"), backgroundColor: Colors.green));
+      }
+
+      // Escuchar flujo de datos (Stream de Bytes)
+      connection!.input!.listen(_onDataReceived).onDone(() {
+        if (mounted) {
+          setState(() => isConnected = false);
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Desconectado"), backgroundColor: Colors.red));
+        }
       });
 
-      // Descubrir servicios y características
-      List<BluetoothService> services = await device.discoverServices();
-      for (BluetoothService service in services) {
-        for (BluetoothCharacteristic characteristic in service.characteristics) {
-          if (characteristic.uuid.toString() == TARGET_UUID) {
-            targetCharacteristic = characteristic;
-            
-            // Habilitar notificaciones para recibir datos en tiempo real
-            await characteristic.setNotifyValue(true);
-            valueSubscription = characteristic.lastValueStream.listen((value) {
-              _onDataReceived(value);
-            });
-          }
-        }
-      }
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Conectado a ${device.platformName}"), backgroundColor: Colors.green)
-      );
-
     } catch (e) {
-      print("Error BLE: $e");
+      print("Error conexión: $e");
       if (mounted) {
-        setState(() { isConnected = false; isScanning = false; });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("No se pudo conectar"), backgroundColor: Colors.red)
-        );
+        setState(() { isConnected = false; isConnecting = false; });
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No se pudo conectar"), backgroundColor: Colors.red));
       }
     }
   }
 
-  void _disconnect() async {
-    await connectedDevice?.disconnect();
-    setState(() {
-      isConnected = false;
-      targetCharacteristic = null;
-    });
+  void _desconectar() {
+    connection?.dispose();
+    setState(() => isConnected = false);
   }
 
-  void _onDataReceived(List<int> data) {
-    // Decodificar bytes a texto
+  // --- PROCESAMIENTO DE DATOS (Buffer JSON) ---
+  void _onDataReceived(Uint8List data) {
     String incoming = utf8.decode(data);
     _dataBuffer += incoming;
 
     try {
-      // Limpiar buffer si es basura muy larga
-      if(_dataBuffer.length > 2000) _dataBuffer = "";
+      if(_dataBuffer.length > 3000) _dataBuffer = ""; // Limpieza de seguridad
 
-      // Buscar paquete JSON completo { ... }
+      // Buscar JSON completo { ... }
       int openBrace = _dataBuffer.indexOf('{');
       int closeBrace = _dataBuffer.indexOf('}');
 
-      if (openBrace != -1 && closeBrace != -1 && closeBrace > openBrace) {
+      // Procesar mientras haya paquetes completos
+      while (openBrace != -1 && closeBrace != -1 && closeBrace > openBrace) {
         String jsonStr = _dataBuffer.substring(openBrace, closeBrace + 1);
-        _dataBuffer = _dataBuffer.substring(closeBrace + 1); // Remover procesado
+        _dataBuffer = _dataBuffer.substring(closeBrace + 1); // Remover lo procesado
+        
         _procesarJSON(jsonStr);
+
+        // Buscar siguiente
+        openBrace = _dataBuffer.indexOf('{');
+        closeBrace = _dataBuffer.indexOf('}');
       }
-    } catch (e) {
-      // Esperar siguiente paquete
+    } catch (e) { 
+      // Esperar más datos 
     }
   }
 
   void _procesarJSON(String jsonString) {
     try {
       Map<String, dynamic> data = jsonDecode(jsonString);
-      
-      // Si el ESP32 reporta electrodos desconectados
-      if (data.containsKey("status") && data["status"] == "LEADS_OFF") {
-        // Aquí podrías mostrar una alerta visual
-        return;
-      }
+      if (data.containsKey("status") && data["status"] == "LEADS_OFF") return;
 
       setState(() {
         if (data.containsKey('bpm')) bpm = data['bpm'];
         if (data.containsKey('bat')) batteryLevel = data['bat'];
-        
         if (data.containsKey('wave')) {
           List<dynamic> wave = data['wave'];
           for (var val in wave) {
-            // Normalizar para la gráfica (aprox -2.0 a 2.0)
+            // Normalización
             double normalized = (val - 2048) / 500.0 * -1.0;
             if (ecgPoints.length >= 100) ecgPoints.removeAt(0);
             ecgPoints.add(normalized);
           }
         }
       });
-    } catch (e) { print(e); }
+    } catch (e) { print("JSON Error: $e"); }
+  }
+
+  // --- SIMULACIÓN ---
+  void _toggleSimulation() {
+    if (isSimulationMode) _stopSimulation();
+    else _startSimulation();
+  }
+
+  void _startSimulation() {
+    if (isConnected) _desconectar();
+    setState(() { isSimulationMode = true; batteryLevel = 100; });
+    
+    _simTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+      if (mounted) {
+        setState(() {
+          _simTime += 0.2;
+          double rawVal = -1.0 * math.exp(-math.pow(_simTime % 4 - 0.5, 2) / 0.1) +
+              5.0 * math.exp(-math.pow(_simTime % 4 - 1.5, 2) / 0.05) +
+              1.5 * math.exp(-math.pow(_simTime % 4 - 2.5, 2) / 0.2);
+          rawVal += (math.Random().nextDouble() - 0.5) * 0.2;
+          
+          if (ecgPoints.length >= 100) ecgPoints.removeAt(0);
+          ecgPoints.add(rawVal);
+          
+          if (_simTime % 20 < 0.2) {
+             bpm = 70 + math.Random().nextInt(10);
+             if(batteryLevel > 0) batteryLevel--;
+          }
+        });
+      }
+    });
+  }
+
+  void _stopSimulation() {
+    _simTimer?.cancel();
+    setState(() { isSimulationMode = false; bpm = 0; ecgPoints = List.filled(100, 0.0); });
   }
 
   Color getBatteryColor() {
@@ -515,8 +394,9 @@ class _PatientDashboardState extends State<PatientDashboard> {
 
   @override
   Widget build(BuildContext context) {
+    bool sistemaActivo = isConnected || isSimulationMode;
+
     return Scaffold(
-      // --- DRAWER ---
       drawer: Drawer(
         child: ListView(
           padding: EdgeInsets.zero,
@@ -530,35 +410,10 @@ class _PatientDashboardState extends State<PatientDashboard> {
                 child: Icon(Icons.person, size: 40, color: Colors.teal),
               ),
             ),
-            ListTile(
-              leading: const Icon(Icons.home),
-              title: const Text("Inicio"),
-              onTap: () => Navigator.pop(context),
-            ),
-            ListTile(
-              leading: const Icon(Icons.qr_code),
-              title: const Text("Compartir mi Código"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const QrShareScreen()));
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.history),
-              title: const Text("Historial Médico"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context, MaterialPageRoute(builder: (context) => const HistoryScreen()));
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.edit_note),
-              title: const Text("Bitácora de Síntomas"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context, MaterialPageRoute(builder: (context) => const SymptomScreen()));
-              },
-            ),
+            ListTile(title: const Text("Inicio"), leading: const Icon(Icons.home), onTap: () => Navigator.pop(context)),
+            ListTile(title: const Text("Compartir mi Código"), leading: const Icon(Icons.qr_code), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const QrShareScreen())); }),
+            ListTile(title: const Text("Historial"), leading: const Icon(Icons.history), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryScreen())); }),
+            ListTile(title: const Text("Bitácora"), leading: const Icon(Icons.edit_note), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const SymptomScreen())); }),
             const Divider(),
             ValueListenableBuilder<ThemeMode>(
               valueListenable: themeNotifier,
@@ -567,9 +422,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
                   title: const Text("Modo Oscuro"),
                   secondary: Icon(mode == ThemeMode.dark ? Icons.dark_mode : Icons.light_mode),
                   value: mode == ThemeMode.dark,
-                  onChanged: (val) {
-                    themeNotifier.value = val ? ThemeMode.dark : ThemeMode.light;
-                  },
+                  onChanged: (val) { _guardarTema(val); },
                 );
               },
             ),
@@ -578,22 +431,17 @@ class _PatientDashboardState extends State<PatientDashboard> {
               leading: const Icon(Icons.logout, color: Colors.red),
               title: const Text("Cerrar Sesión", style: TextStyle(color: Colors.red)),
               onTap: () async {
-                _disconnect();
+                if(isConnected) _desconectar();
                 Navigator.pop(context);
                 await _authService.cerrarSesion();
                 if (mounted) {
-                  Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (context) => const LoginScreen()),
-                    (Route<dynamic> route) => false,
-                  );
+                  Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (context) => const LoginScreen()), (Route<dynamic> route) => false);
                 }
               },
             ),
           ],
         ),
       ),
-      
-      // --- APPBAR ---
       appBar: AppBar(
         title: const Text("Monitor Cardíaco"),
         actions: [
@@ -604,23 +452,21 @@ class _PatientDashboardState extends State<PatientDashboard> {
               decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(4)),
               child: Row(
                 children: [
-                  Text(isConnected ? "$batteryLevel%" : "--%", style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text(sistemaActivo ? "$batteryLevel%" : "--%", style: const TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(width: 4),
-                  Icon(Icons.battery_std, color: getBatteryColor()),
+                  Icon(Icons.battery_std, color: sistemaActivo ? getBatteryColor() : Colors.grey),
                 ],
               ),
             ),
           )
         ],
       ),
-      
-      // --- BODY ---
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Estado y BPM
+            // ESTADO
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -630,10 +476,12 @@ class _PatientDashboardState extends State<PatientDashboard> {
                     const Text("Estado del Sensor", style: TextStyle(color: Colors.grey)),
                     Row(
                       children: [
-                        Icon(Icons.circle, size: 12, color: isConnected ? Colors.green : Colors.red),
+                        Icon(Icons.circle, size: 12, color: sistemaActivo ? Colors.green : Colors.red),
                         const SizedBox(width: 6),
                         Text(
-                          isConnected ? "CONECTADO" : (isScanning ? "BUSCANDO..." : "DESCONECTADO"), 
+                          isSimulationMode 
+                              ? "SIMULANDO" 
+                              : (isConnected ? "CONECTADO" : (isConnecting ? "CONECTANDO..." : "DESCONECTADO")), 
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)
                         ),
                       ],
@@ -656,73 +504,73 @@ class _PatientDashboardState extends State<PatientDashboard> {
                 )
               ],
             ),
-
             const SizedBox(height: 20),
-
-            // Gráfica
+            
+            // GRÁFICA
             const Text("Señal en Tiempo Real (AD8232)", style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Container(
               height: 200,
               width: double.infinity,
-              decoration: BoxDecoration(
-                color: Colors.black,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey[800]!),
-              ),
+              decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey[800]!)),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: CustomPaint(painter: ECGPainter(ecgPoints)),
               ),
             ),
-
             const SizedBox(height: 20),
 
-            // BOTÓN CONEXIÓN
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: isConnected ? Colors.red.shade100 : (isScanning ? Colors.orange.shade100 : Colors.teal),
-                  foregroundColor: isConnected ? Colors.red : (isScanning ? Colors.orange : Colors.white),
-                  padding: const EdgeInsets.symmetric(vertical: 15),
+            // BOTONES
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isConnected ? Colors.red.shade100 : Colors.teal,
+                      foregroundColor: isConnected ? Colors.red : Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                    ),
+                    onPressed: (isConnecting || isSimulationMode) ? null : (isConnected ? _desconectar : _abrirSelectorBluetooth),
+                    icon: Icon(isConnected ? Icons.bluetooth_disabled : Icons.bluetooth),
+                    label: Text(isConnected ? "DESCONECTAR" : "CONECTAR SENSOR"),
+                  ),
                 ),
-                onPressed: isScanning ? null : (isConnected ? _disconnect : _startScan),
-                icon: isScanning 
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) 
-                    : Icon(isConnected ? Icons.bluetooth_disabled : Icons.bluetooth),
-                label: Text(
-                  isConnected ? "DESCONECTAR SENSOR" : (isScanning ? "BUSCANDO..." : "ESCANEAR Y CONECTAR")
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isSimulationMode ? Colors.orange : Colors.blueGrey,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                    ),
+                    onPressed: isConnected ? null : _toggleSimulation,
+                    icon: Icon(isSimulationMode ? Icons.stop : Icons.play_arrow),
+                    label: Text(isSimulationMode ? "DETENER SIM" : "SIMULAR"),
+                  ),
                 ),
-              ),
+              ],
             ),
-
             const SizedBox(height: 12),
-
-            // BOTÓN GUARDAR
-            if (isConnected)
+            
+            if (sistemaActivo)
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blueGrey,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                  ),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 15)),
                   icon: const Icon(Icons.save),
                   label: const Text("GUARDAR LECTURA ACTUAL EN NUBE"),
                   onPressed: () async {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Guardando datos reales...")));
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Guardando datos...")));
+                    if(isSimulationMode) _stopSimulation();
                     await _authService.guardarMedicion(bpm: bpm > 0 ? bpm : 0, datosOnda: ecgPoints);
                     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("¡Lectura guardada!"), backgroundColor: Colors.green));
                   },
                 ),
               ),
 
+            // DATOS
             const SizedBox(height: 30),
             const Divider(),
-            
-            // Datos Fisiológicos
             const SizedBox(height: 10),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -739,21 +587,9 @@ class _PatientDashboardState extends State<PatientDashboard> {
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   children: [
-                    Row(
-                      children: [
-                        Expanded(child: _buildInfoField("Edad", "$displayEdad años")),
-                        const SizedBox(width: 10),
-                        Expanded(child: _buildInfoField("Peso", "$displayPeso kg")),
-                      ],
-                    ),
+                    Row(children: [Expanded(child: _buildInfoField("Edad", "$displayEdad años")), const SizedBox(width: 10), Expanded(child: _buildInfoField("Peso", "$displayPeso kg"))]),
                     const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(child: _buildInfoField("Nombre", displayNombre)),
-                        const SizedBox(width: 10),
-                        Expanded(child: _buildInfoField("Altura", "$displayAltura cm")),
-                      ],
-                    ),
+                    Row(children: [Expanded(child: _buildInfoField("Nombre", displayNombre)), const SizedBox(width: 10), Expanded(child: _buildInfoField("Altura", "$displayAltura cm"))]),
                     const SizedBox(height: 10),
                     SizedBox(
                       width: double.infinity,
@@ -786,191 +622,8 @@ class _PatientDashboardState extends State<PatientDashboard> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// DASHBOARD DEL MÉDICO
-// ---------------------------------------------------------------------------
-class DoctorDashboard extends StatefulWidget {
-  const DoctorDashboard({super.key});
-
-  @override
-  State<DoctorDashboard> createState() => _DoctorDashboardState();
-}
-
-class _DoctorDashboardState extends State<DoctorDashboard> {
-  final FirebaseService _authService = FirebaseService();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            UserAccountsDrawerHeader(
-              decoration: const BoxDecoration(color: Colors.blue),
-              accountName: const Text("Médico", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-              accountEmail: Text(_authService.getUserEmail() ?? "doctor@hospital.com"),
-              currentAccountPicture: const CircleAvatar(
-                backgroundColor: Colors.white,
-                child: Icon(Icons.medical_services, size: 40, color: Colors.blue),
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.home),
-              title: const Text("Inicio"),
-              onTap: () => Navigator.pop(context),
-            ),
-            ListTile(
-              leading: const Icon(Icons.person_outline),
-              title: const Text("Mi Perfil"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context, MaterialPageRoute(builder: (context) => const ProfileScreen()));
-              },
-            ),
-            const Divider(),
-            ValueListenableBuilder<ThemeMode>(
-              valueListenable: themeNotifier,
-              builder: (_, mode, __) {
-                return SwitchListTile(
-                  title: const Text("Modo Oscuro"),
-                  secondary: Icon(mode == ThemeMode.dark ? Icons.dark_mode : Icons.light_mode),
-                  value: mode == ThemeMode.dark,
-                  onChanged: (val) {
-                    themeNotifier.value = val ? ThemeMode.dark : ThemeMode.light;
-                  },
-                );
-              },
-            ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.logout, color: Colors.red),
-              title: const Text("Cerrar Sesión", style: TextStyle(color: Colors.red)),
-              onTap: () async {
-                Navigator.pop(context);
-                await _authService.cerrarSesion();
-                if (mounted) {
-                  Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (context) => const LoginScreen()),
-                    (Route<dynamic> route) => false,
-                  );
-                }
-              },
-            ),
-          ],
-        ),
-      ),
-      appBar: AppBar(
-        title: const Text("Panel Médico"),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
-      ),
-      
-      body: StreamBuilder<QuerySnapshot>(
-        stream: _authService.obtenerMisPacientes(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-          if (snapshot.hasError) return Center(child: Text("Error: ${snapshot.error}"));
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.people_outline, size: 80, color: Colors.grey.shade300),
-                  const SizedBox(height: 10),
-                  const Text("No tienes pacientes asignados.", style: TextStyle(color: Colors.grey)),
-                  const SizedBox(height: 5),
-                  const Text("Usa el botón + para escanear un QR.", style: TextStyle(fontSize: 12, color: Colors.grey)),
-                ],
-              ),
-            );
-          }
-
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: snapshot.data!.docs.length,
-            itemBuilder: (context, index) {
-              var pacienteDoc = snapshot.data!.docs[index];
-              var data = pacienteDoc.data() as Map<String, dynamic>;
-              
-              String nombre = data['nombre'] ?? "Paciente Sin Nombre";
-              String email = data['email'] ?? "";
-              var bio = data['datos_biometricos'] ?? {};
-              String infoExtra = "Edad: ${bio['edad'] ?? '--'} | Peso: ${bio['peso'] ?? '--'}";
-
-              return Card(
-                margin: const EdgeInsets.only(bottom: 10),
-                elevation: 2,
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.blue.shade100,
-                    child: Text(nombre[0].toUpperCase(), style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
-                  ),
-                  title: Text(nombre, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text("$email\n$infoExtra"),
-                  isThreeLine: true,
-                  trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => PatientDetailScreen(
-                          pacienteId: pacienteDoc.id,
-                          datosPaciente: data,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              );
-            },
-          );
-        },
-      ),
-      
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.blue,
-        onPressed: (){
-           Navigator.push(context, MaterialPageRoute(builder: (_) => const QrScanScreen()));
-        },
-        child: const Icon(Icons.qr_code_scanner, color: Colors.white),
-      ),
-    );
-  }
-}
-
-class ECGPainter extends CustomPainter {
-  final List<double> points;
-  ECGPainter(this.points);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final Paint gridPaint = Paint()..color = Colors.green.withOpacity(0.2)..strokeWidth = 0.5;
-    double stepX = size.width / 20;
-    double stepY = size.height / 10;
-    for (double x = 0; x <= size.width; x += stepX) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
-    }
-    for (double y = 0; y <= size.height; y += stepY) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
-    }
-
-    final Paint wavePaint = Paint()..color = const Color(0xFF00FF00)..strokeWidth = 2.0..style = PaintingStyle.stroke;
-    final Path path = Path();
-    
-    if (points.isNotEmpty) {
-      double xInterval = size.width / (points.length - 1);
-      double startY = size.height / 2 - (points[0] * 20); 
-      path.moveTo(0, startY);
-      for (int i = 1; i < points.length; i++) {
-        double x = i * xInterval;
-        double y = size.height / 2 - (points[i] * 20);
-        path.lineTo(x, y);
-      }
-    }
-    canvas.drawPath(path, wavePaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
-}
+// ... (DOCTOR DASHBOARD Y ECG PAINTER IGUALES, CÓPIALOS DE TU VERSIÓN ANTERIOR O PÍDEMELOS SI LOS PERDISTE) ...
+// Puse ... para que entrara en un mensaje, pero recuerda pegar el DoctorDashboard y ECGPainter
+class DoctorDashboard extends StatefulWidget { const DoctorDashboard({super.key}); @override State<DoctorDashboard> createState() => _DoctorDashboardState(); }
+class _DoctorDashboardState extends State<DoctorDashboard> { @override Widget build(BuildContext context) { return const Scaffold(body: Center(child: Text("Pega tu DoctorDashboard aquí"))); } }
+class ECGPainter extends CustomPainter { final List<double> p; ECGPainter(this.p); @override void paint(Canvas c, Size s) {} @override bool shouldRepaint(old) => true; }

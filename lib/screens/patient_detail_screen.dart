@@ -37,7 +37,7 @@ class PatientDetailScreen extends StatelessWidget {
         ),
         body: TabBarView(
           children: [
-            // PESTAÑA 1: PERFIL (Información)
+            // PESTAÑA 1: PERFIL (Información estática)
             SingleChildScrollView(
               padding: const EdgeInsets.all(20),
               child: Column(
@@ -59,10 +59,10 @@ class PatientDetailScreen extends StatelessWidget {
               ),
             ),
 
-            // PESTAÑA 2: HISTORIAL (Reusando tu pantalla, pasándole el ID)
+            // PESTAÑA 2: HISTORIAL (Reutilizamos la pantalla, pasándole el ID del paciente)
             HistoryScreen(userId: pacienteId),
 
-            // PESTAÑA 3: BITÁCORA (Reusando tu pantalla, pasándole el ID)
+            // PESTAÑA 3: BITÁCORA (Reutilizamos la pantalla, pasándole el ID del paciente)
             SymptomScreen(userId: pacienteId),
           ],
         ),

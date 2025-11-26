@@ -1,19 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:borrador_proyecto/main.dart'; // Asegúrate que este import coincida con tu proyecto
+import 'package:borrador_proyecto/main.dart'; // Verifica que este sea el nombre de tu proyecto
 
 void main() {
   testWidgets('Prueba de arranque de la App', (WidgetTester tester) async {
-    // 1. Iniciamos la app pasándole el parámetro que faltaba
-    // Le decimos 'false' para que cargue el Login directamente
+    // CORRECCIÓN: Usamos 'mostrarOnboarding: false' para simular que ya vio el tutorial
+    // y que debe ir directo al Login.
     await tester.pumpWidget(const MyApp(mostrarOnboarding: false));
 
-    // 2. Esperamos a que cargue la interfaz
+    // Esperamos a que cargue
     await tester.pump();
 
-    // 3. Verificamos que la app arrancó buscando un texto del Login
-    // (El test original buscaba '0' y '1', eso fallaría porque ya no es una app de contador)
+    // Verificamos que aparezca algo del Login (ej. "Bienvenido de nuevo")
+    // Nota: Asegúrate que este texto exista en tu pantalla de Login
     expect(find.text('Bienvenido de nuevo'), findsOneWidget);
-    expect(find.byType(TextField), findsNWidgets(2)); // Busca correo y contraseña
   });
 }

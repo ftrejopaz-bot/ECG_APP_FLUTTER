@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:borrador_proyecto/servicios/firebase_service.dart';
+import '../servicios/firebase_service.dart';
 
 class SymptomScreen extends StatefulWidget {
-  final String? userId; // ID del paciente (Opcional)
+  final String? userId; // ID del paciente (Opcional para modo lectura)
   const SymptomScreen({super.key, this.userId});
 
   @override
@@ -22,7 +22,7 @@ class _SymptomScreenState extends State<SymptomScreen> {
             title: Text(docId == null ? "Nuevo Síntoma" : "Editar Síntoma"),
             content: TextField(
               controller: _sintomaController,
-              decoration: const InputDecoration(hintText: "Ej: Mareo..."),
+              decoration: const InputDecoration(hintText: "Ej: Mareo, palpitaciones..."),
               maxLines: 3,
             ),
             actions: [
@@ -64,11 +64,13 @@ class _SymptomScreenState extends State<SymptomScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Si hay userId, significa que el médico está viendo el perfil, así que deshabilitamos edición
     bool esMedico = widget.userId != null;
 
     return Scaffold(
       appBar: esMedico ? null : AppBar(title: const Text("Bitácora"), backgroundColor: Colors.teal),
       
+      // El botón de agregar solo se muestra si es el propio paciente
       floatingActionButton: esMedico ? null : FloatingActionButton(
         backgroundColor: Colors.teal,
         onPressed: () => _mostrarDialogoSintoma(),
@@ -95,6 +97,7 @@ class _SymptomScreenState extends State<SymptomScreen> {
                   leading: const Icon(Icons.medical_information, color: Colors.orange),
                   title: Text(data['descripcion'] ?? ""),
                   subtitle: Text(fecha),
+                  // Solo mostramos menú de edición si NO es médico
                   trailing: esMedico ? null : PopupMenuButton<String>(
                     onSelected: (v) => v == 'edit' ? _mostrarDialogoSintoma(docId: doc.id, textoActual: data['descripcion']) : _confirmarEliminar(doc.id),
                     itemBuilder: (ctx) => [
